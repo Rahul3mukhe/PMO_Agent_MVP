@@ -12,7 +12,8 @@ from pmo_graph import build_graph, load_standards
 from schemas import Project, PMOState, DocumentArtifact
 from doc_templates import create_official_docx, create_decision_report_docx
 import fastapi
-from fastapi.responses import Response
+from fastapi.responses import Response, FileResponse
+from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
 
@@ -154,6 +155,26 @@ async def get_config():
         "doc_info": standards["docs"],
         "project_schema": Project.model_json_schema()
     }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FRONTEND SERVING
+# ─────────────────────────────────────────────────────────────────────────────
+FRONTEND_PATH = os.path.join(os.path.dirname(__file__), "frontend", "dist")
+
+if os.path.exists(FRONTEND_PATH):
+    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_PATH, "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_react_app(full_path: str):
+        # Serve the API usually takes precedence, but for anything else, serve index.html
+        # Check if the path is an actual file in dist (like favicon, etc.)
+        file_path = os.path.join(FRONTEND_PATH, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        # Otherwise, serve the SPA entry point
+        return FileResponse(os.path.join(FRONTEND_PATH, "index.html"))
+else:
+    logger.warning(f"Frontend dist not found at {FRONTEND_PATH}. UI will not be served.")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
