@@ -31,6 +31,7 @@ app.add_middleware(
 STANDARDS_PATH = "config/standards.yml"
 standards = load_standards(STANDARDS_PATH)
 
+
 def extract_text(filename: str, content: bytes) -> str:
     name = filename.lower()
     if name.endswith((".txt", ".md", ".json")):
@@ -40,14 +41,17 @@ def extract_text(filename: str, content: bytes) -> str:
             from docx import Document
             doc = Document(io.BytesIO(content))
             return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
-        except Exception: return ""
+        except Exception:
+            return ""
     if name.endswith(".pdf"):
         try:
             import PyPDF2
             reader = PyPDF2.PdfReader(io.BytesIO(content))
             return "\n".join(pg.extract_text() for pg in reader.pages if pg.extract_text())
-        except Exception: return ""
+        except Exception:
+            return ""
     return ""
+
 
 @app.post("/analyze")
 async def analyze_project(
@@ -57,78 +61,136 @@ async def analyze_project(
 ):
     try:
         logger.info(f"Starting analysis for project data: {project_data[:200]}...")
-        data = json.loads(project_data)
+        data    = json.loads(project_data)
         mapping = json.loads(uploaded_mapping)
-        
+
         project = Project(**data)
-        state = PMOState(
+        state   = PMOState(
             project=project,
             standards=standards,
             provider="groq",
             model="llama-3.3-70b-versatile"
         )
-        
-        doc_mapping = {}
+
+        doc_mapping             = {}
         raw_text_for_extraction = ""
-        
+
         if files:
             for file in files:
                 content = await file.read()
-                text = extract_text(file.filename, content)
-                
-                # Check if this file is mapped to a specific doc type
+                text    = extract_text(file.filename, content)
+
                 if file.filename in mapping and mapping[file.filename]:
                     doc_type = mapping[file.filename]
-                    doc_mapping[doc_type] = (doc_mapping.get(doc_type, "") + "\n\n" + text).strip()
+                    doc_mapping[doc_type] = (
+                        doc_mapping.get(doc_type, "") + "\n\n" + text
+                    ).strip()
                 else:
-                    # Otherwise use it for general project extraction
                     raw_text_for_extraction += "\n\n" + text
 
         state.audit["uploaded_mapping"] = doc_mapping
-        state.audit["raw_upload_text"] = raw_text_for_extraction
-        
-        graph = build_graph()
+        state.audit["raw_upload_text"]  = raw_text_for_extraction
+
+        graph  = build_graph()
         result = graph.invoke(state)
-        
+
         # LangGraph returns the state as a dict
         return result
+
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
         logger.error(f"Analysis failed: {str(e)}\n{error_trace}")
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
+
 @app.post("/export/docx")
 async def export_docx(state: PMOState, doc_type: str):
     if doc_type not in state.docs:
         raise HTTPException(status_code=404, detail=f"Document {doc_type} not found")
-    
-    doc = state.docs[doc_type]
-    org = state.standards.get("org", {}).get("name", "PMO Agent")
+
+    doc  = state.docs[doc_type]
+    proj = state.project
+    org  = state.standards.get("org", {}).get("name", "PMO Agent")
+
+    # ── Risk Registry: return the dedicated professional Word document ─────────
+    # The risk_registry_generator pipeline stores the pre-built docx bytes in
+    # state.audit["risk_registry_docx"] during the graph run.  We return those
+    # bytes directly so the fully structured document (cover page, scoring
+    # matrix, detail cards, heatmap, etc.) is delivered unchanged.
+    if doc_type == "risk_registry":
+        docx_bytes: Optional[bytes] = None
+
+        # 1. Use pre-built bytes from the graph run (fastest path)
+        if isinstance(state.audit.get("risk_registry_docx"), bytes):
+            docx_bytes = state.audit["risk_registry_docx"]
+            logger.info("Returning pre-built risk_registry docx from audit cache.")
+
+        # 2. Rebuild from structured data if cache is missing
+        #    (e.g. the client sent a hand-crafted PMOState without running the graph)
+        if not docx_bytes:
+            try:
+                from risk_registry_generator import (
+                    build_risk_registry_docx,
+                    _validate_and_fill_risk_data,
+                )
+                raw_data = state.audit.get("risk_registry_structured_data", {})
+                if not raw_data:
+                    raw_data = _validate_and_fill_risk_data({}, proj)
+                docx_bytes = build_risk_registry_docx(raw_data, state)
+                logger.info("Rebuilt risk_registry docx from structured data.")
+            except Exception as e:
+                logger.warning(
+                    f"risk_registry dedicated rebuild failed ({e}); "
+                    "falling back to generic template."
+                )
+
+        # 3. Ultimate fallback — generic markdown → docx template
+        if not docx_bytes:
+            header = state.standards.get("org", {}).get("doc_header", "Internal")
+            footer = state.standards.get("org", {}).get("doc_footer", "")
+            docx_bytes = create_official_docx(
+                org_name=org,
+                header=header,
+                footer=footer,
+                title=doc.title or doc_type,
+                md_content=doc.content_markdown,
+            )
+            logger.info("Using generic template fallback for risk_registry export.")
+
+        filename = f"{proj.project_id}_{doc_type}.docx"
+        return Response(
+            content=docx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+
+    # ── All other document types: existing generic renderer ───────────────────
     header = state.standards.get("org", {}).get("doc_header", "Internal")
     footer = state.standards.get("org", {}).get("doc_footer", "")
-    
+
     docx_bytes = create_official_docx(
         org_name=org,
         header=header,
         footer=footer,
         title=doc.title or doc_type,
-        md_content=doc.content_markdown
+        md_content=doc.content_markdown,
     )
-    
-    filename = f"{state.project.project_id}_{doc_type}.docx"
+
+    filename = f"{proj.project_id}_{doc_type}.docx"
     return Response(
         content=docx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
+
 @app.post("/export/report")
 async def export_report(state: PMOState):
-    org = state.standards.get("org", {}).get("name", "PMO Agent")
+    org    = state.standards.get("org", {}).get("name", "PMO Agent")
     header = state.standards.get("org", {}).get("doc_header", "Internal")
     footer = state.standards.get("org", {}).get("doc_footer", "")
-    
+
     docx_bytes = create_decision_report_docx(
         org_name=org,
         header=header,
@@ -140,7 +202,7 @@ async def export_report(state: PMOState):
         gates=state.gates,
         docs=state.docs
     )
-    
+
     filename = f"{state.project.project_id}_PMO_Decision_Report.docx"
     return Response(
         content=docx_bytes,
@@ -148,12 +210,14 @@ async def export_report(state: PMOState):
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
+
 @app.get("/config")
 async def get_config():
     return {
-        "doc_info": standards["docs"],
+        "doc_info":       standards["docs"],
         "project_schema": Project.model_json_schema()
     }
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
