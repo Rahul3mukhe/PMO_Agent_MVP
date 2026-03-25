@@ -1,15 +1,14 @@
-# llm_providers.py
-# Provider cascade: Groq → Ollama (local) → Mistral API → Local Template
+
+# Provider cascade: Groq → Local Template
 import os
 from typing import Optional, Any
 
 # ─────────────────────────────────────────────────────────────────────────────
-# API KEYS  ←  ADD YOUR KEYS HERE
+# API KEYS 
 # ─────────────────────────────────────────────────────────────────────────────
-_DEFAULT_GROQ_KEY    = "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"  # ← REPLACE
-_DEFAULT_MISTRAL_KEY = ""   # ← ADD YOUR MISTRAL KEY (free at console.mistral.ai)
+_DEFAULT_GROQ_KEY    = "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"  
 
-# Groq models to try in order before giving up on Groq
+
 GROQ_MODELS_FALLBACK = [
     "llama-3.3-70b-versatile",
     "llama3-8b-8192",
