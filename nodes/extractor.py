@@ -7,9 +7,8 @@ class ProjectExtractor(BaseNode):
     def __call__(self, state: PMOState) -> PMOState:
         raw_text = state.audit.get("raw_upload_text", "")
         if not raw_text.strip():
-            # Fallback if no documents were uploaded yet
-            state.project.project_id = state.project.project_id or "PRJ-001"
-            state.project.project_name = state.project.project_name or "New Uploaded Project"
+            # No upload text — keep whatever the user entered in the form as-is.
+            # Do NOT manufacture dummy IDs or default values here.
             return state
 
         prompt = f"""
@@ -50,19 +49,37 @@ TEXT to analyze:
                 project=state.project,
                 doc_type="extraction"
             )
-            
+
             start = response.find("{")
             end = response.rfind("}") + 1
             if start != -1 and end != -1:
                 json_str = response[start:end]
                 data = json.loads(json_str)
+
+                # Never overwrite project_id or project_name with fallback template values
+                FALLBACK_IDS   = {"PRJ-LOCAL", "prj-local"}
+                FALLBACK_NAMES = {"local fallback project", "new uploaded project"}
+
+                is_fallback_id   = str(data.get("project_id","")).strip() in FALLBACK_IDS
+                is_fallback_name = str(data.get("project_name","")).strip().lower() in FALLBACK_NAMES
+
+                # Fields the user has already provided — never overwrite these
+                user_provided_id   = (getattr(state.project, "project_id",   "") or "").strip() not in ("", "TBD")
+                user_provided_name = (getattr(state.project, "project_name", "") or "").strip() not in ("", "TBD")
+
                 for k, v in data.items():
-                    if hasattr(state.project, k):
-                        # Only set if not already provided by user manually? 
-                        # Actually the current logic overwrites. 
-                        # We'll stick to current logic for now.
-                        setattr(state.project, k, v)
+                    if not hasattr(state.project, k):
+                        continue
+                    # Never overwrite project_id / project_name with fallback values
+                    if k == "project_id"   and (is_fallback_id   or user_provided_id):
+                        continue
+                    if k == "project_name" and (is_fallback_name or user_provided_name):
+                        continue
+                    # Only set non-null, non-empty values — don't zero out user data
+                    if v is None or v == "":
+                        continue
+                    setattr(state.project, k, v)
         except Exception as e:
             state.audit["extraction_error"] = str(e)
-        
+
         return state

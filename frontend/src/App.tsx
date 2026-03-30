@@ -6,7 +6,7 @@ import DocUpload from './components/DocUpload';
 import Dashboard from './components/Dashboard';
 import { Home, FileText, Settings, Info, Loader2, Hexagon, Upload } from 'lucide-react';
 
-const API_BASE = window.location.origin; // Dynamically use current origin
+const API_BASE = import.meta.env.DEV ? 'http://127.0.0.1:8000' : window.location.origin;
 
 function App() {
   const [view, setView] = useState<'home' | 'results' | 'documents' | 'guide' | 'settings'>('home');

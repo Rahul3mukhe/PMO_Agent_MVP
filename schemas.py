@@ -11,6 +11,15 @@ class Project(BaseModel):
     estimated_budget: Optional[float] = None
     actual_budget_consumed: Optional[float] = None
     total_time_taken_days: Optional[int] = None
+    
+    # Detailed cost breakdown
+    labour_cost: Optional[float] = None
+    development_cost: Optional[float] = None
+    test_cost: Optional[float] = None
+    software_cost: Optional[float] = None
+    infrastructure_cost: Optional[float] = None
+    overhead_cost: Optional[float] = None
+    
     timeline_summary: Optional[str] = None
     scope_summary: Optional[str] = None
     key_deliverables: List[str] = Field(default_factory=list)

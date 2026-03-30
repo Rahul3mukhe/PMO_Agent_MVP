@@ -84,10 +84,13 @@ def _is_quota(err: str) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 def _local_template_generate(project, doc_type: str, standards: dict) -> str:
     if doc_type == "extraction":
+        # Return all-null so we never inject fake project data.
+        # The project uses only what the user entered in the form.
         return (
-            '{"project_id":"PRJ-LOCAL","project_name":"Local Fallback Project",'
-            '"estimated_budget":500000.0,"actual_budget_consumed":100000.0,'
-            '"total_time_taken_days":14}'
+            '{"project_id":null,"project_name":null,"project_type":null,'
+            '"sponsor":null,"estimated_budget":null,"actual_budget_consumed":null,'
+            '"total_time_taken_days":null,"timeline_summary":null,'
+            '"scope_summary":null,"key_deliverables":[],"known_risks":[]}'
         )
 
     doc_std  = standards["docs"][doc_type]
@@ -300,8 +303,10 @@ def _try_groq(prompt: str, model: str, api_key: Optional[str],
     resp = client.chat.completions.create(
         messages=[
             {"role": "system", "content": (
-                "You are a senior PMO governance documentation specialist. "
-                "Write formal, complete, audit-ready documents."
+                "You are a strict, senior PMO governance documentation specialist. "
+                "Write formal, complete, audit-ready documents for executive reviewers. "
+                "CRITICAL: DO NOT HALLUCINATE or invent facts. Base everything strictly on the user-provided context. "
+                "If specific data is missing, explicitly state 'Information not provided'. Do not guess."
             )},
             {"role": "user", "content": prompt},
         ],
@@ -351,8 +356,10 @@ def _try_mistral(prompt: str, model: str, api_key: Optional[str],
         model=model,
         messages=[
             {"role": "system", "content": (
-                "You are a senior PMO governance documentation specialist. "
-                "Write formal, complete, audit-ready documents."
+                "You are a strict, senior PMO governance documentation specialist. "
+                "Write formal, complete, audit-ready documents for executive reviewers. "
+                "CRITICAL: DO NOT HALLUCINATE or invent facts. Base everything strictly on the user-provided context. "
+                "If specific data is missing, explicitly state 'Information not provided'. Do not guess."
             )},
             {"role": "user", "content": prompt},
         ],

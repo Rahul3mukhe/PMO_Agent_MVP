@@ -6,6 +6,12 @@ export interface Project {
   estimated_budget?: number;
   actual_budget_consumed?: number;
   total_time_taken_days?: number;
+  labour_cost?: number;
+  development_cost?: number;
+  test_cost?: number;
+  software_cost?: number;
+  infrastructure_cost?: number;
+  overhead_cost?: number;
   timeline_summary?: string;
   scope_summary?: string;
   key_deliverables: string[];
@@ -29,11 +35,21 @@ export interface GateResult {
   findings: string[];
 }
 
+export interface GenerationLogEntry {
+  doc: string;
+  provider: string;
+  model: string;
+  status: 'ok' | 'fallback' | 'failed';
+  note: string;
+}
+
 export interface PMOState {
   project: Project;
   docs: Record<string, DocumentArtifact>;
   gates: GateResult[];
   decision?: string;
   summary?: string;
-  audit: Record<string, any>;
+  audit: Record<string, any> & {
+    generation_log?: GenerationLogEntry[];
+  };
 }

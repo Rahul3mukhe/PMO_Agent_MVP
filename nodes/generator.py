@@ -44,8 +44,12 @@ Now output ONLY the full Markdown document.
 def _needed_docs(state: PMOState) -> set[str]:
     return set(state.standards["docs"].keys())
 
+
 class GeneratorNode(BaseNode):
     def __call__(self, state: PMOState) -> PMOState:
+        # ── Import risk registry pipeline ─────────────────────────────────────
+        from risk_registry_generator import generate_risk_registry_artifact
+
         needed = _needed_docs(state)
         generated = []
 
@@ -55,6 +59,16 @@ class GeneratorNode(BaseNode):
             if art.content_markdown and art.content_markdown.strip():
                 continue
 
+            # ── Risk Registry: dedicated structured pipeline ───────────────────
+            # Calls LLM for structured JSON, auto-identifies risks from the
+            # project description, assigns all risks to Project Manager by
+            # default, and renders a full professional Word document.
+            if d == "risk_registry":
+                state.docs[d] = generate_risk_registry_artifact(state)
+                generated.append(d)
+                continue
+
+            # ── All other doc types: existing generic markdown prompt ──────────
             prompt = build_generation_prompt(state, d)
 
             try:
@@ -85,8 +99,12 @@ class GeneratorNode(BaseNode):
         state.audit["generated_docs"] = generated
         return state
 
+
 class RepairNode(BaseNode):
     def __call__(self, state: PMOState) -> PMOState:
+        # ── Import risk registry repair pipeline ──────────────────────────────
+        from risk_registry_generator import repair_risk_registry_artifact
+
         needed = _needed_docs(state)
         repaired = []
 
@@ -95,6 +113,15 @@ class RepairNode(BaseNode):
             if art.status != "NOT_SUFFICIENT":
                 continue
 
+            # ── Risk Registry: dedicated repair pipeline ───────────────────────
+            # Re-runs the full LLM pipeline, injecting the validator's findings
+            # into the prompt so the LLM addresses specific gaps on the second pass.
+            if d == "risk_registry":
+                state.docs[d] = repair_risk_registry_artifact(state)
+                repaired.append(d)
+                continue
+
+            # ── All other doc types: existing generic repair prompt ────────────
             issues = "\n".join([f"- {r}" for r in art.reasons])
             prompt = build_generation_prompt(state, d) + f"\n\nREPAIR REQUIRED. Fix these issues:\n{issues}\n"
 
